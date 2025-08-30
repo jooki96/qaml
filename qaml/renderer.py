@@ -23,7 +23,9 @@ def _expose_all(props):
 # --- template token regexes ---
 RE_EXPOSE = re.compile(r"\$EXPOSE\s+([A-Za-z_:][-A-Za-z0-9_:.]*)")
 RE_EXPOSE_AS = re.compile(r"\$EXPOSE_AS\s+([A-Za-z_][\w:-]*)\s*->\s*([A-Za-z_:][-A-Za-z0-9_:.]*)")
-RE_GLOBAL = re.compile(r"\$\$([A-Za-z_][A-Za-z0-9_]*)")
+RE_DEFINE = re.compile(r'\$DEFINE\(\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)')
+
+RE_GLOBAL = re.compile(r"\$\$([A-Za-z_][A-Za-z0-9_]*)") 
 
 def render(block, templates, globals=None):
     """Render AST to HTML string using *templates* dict.
@@ -57,16 +59,21 @@ def _render_block(block, templates, gvars):
     body = "".join(_render_node(ch, templates, gvars) for ch in block.children)
     tpl = templates.get(block.name)
     if not tpl:
-        # fallback: debug wrapper
         return f'<div data-qaml="{block.name}">{body}</div>'
 
-    # Compute title with new precedence
+    # --- handle DEFINE replacements on the body ---
+    defines = list(RE_DEFINE.finditer(tpl))
+    for m in defines:
+        src, dst = m.group(1), m.group(2)
+        body = body.replace(src, dst)
+
+    # strip DEFINE markers from template completely
+    tpl = RE_DEFINE.sub("", tpl)
+
+    # now continue as before
     title = _title_of(block, gvars)
 
-    # First replace $$GLOBALS (can appear anywhere)
     out = RE_GLOBAL.sub(lambda m: _esc(str(gvars.get(m.group(1), ""))), tpl)
-
-    # Replace standard placeholders that don't require scanning order
     out = (out
            .replace("$BODY", body)
            .replace("$EXPOSE_ALL", _expose_all(block.props))
@@ -88,8 +95,8 @@ def _render_block(block, templates, gvars):
             return f'{attr}="{_esc(str(block.props[prop]))}"'
         return ""
 
-    out = RE_EXPOSE_AS.sub(_rep_expose_as, out)
-
+    out = RE_EXPOSE_AS.sub(_rep_expose_as, out) 
+        
     return out
 
 def _title_of(block, gvars):

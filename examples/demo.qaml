@@ -8,9 +8,23 @@
             Hello World - THIS IS QAML
         SUBTITLE:
             Subtitle for a demo QAML file
+            
+        AUTHOR:
+            jooki96
+        
         TEXT:
-            This is [LINK .href="https://example.com" .target="_blank"]a link[/LINK].
-        IMG:
-            .src = "https://picsum.photos/200/120"
-        TEXT:
-            This is some placeholder text 
+            
+            This is some text.
+                This is some indented text.
+            
+        PYTHON:
+            
+            import numpy as np 
+            
+            def add(x, y):
+                return(x+y)
+                
+                
+            print("hello world") 
+            ## comment
+            

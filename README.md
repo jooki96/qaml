@@ -57,7 +57,7 @@ A template is just a `.html` file with named sections:
 ```
 
 Each QAML block (`TITLE`, `TEXT`, `LINK`, `IMG`) is mapped to its template.  
-Placeholders (`$BODY`, `$EXPOSE attr`, `$EXPOSE_AS prop -> attr`, `$$GLOBAL`) are replaced during rendering.
+Placeholders (`$BODY`, `$EXPOSE attr`, `$EXPOSE_AS prop -> attr`, `$$GLOBAL`, `$DEFINE`) are replaced during rendering.
 
 ---
 
@@ -132,10 +132,10 @@ then Jinja takes over to expand the `{% for … %}` loop.
 
 - `$BODY` – rendered children.
 - `$EXPOSE attr` – emit `attr="value"` if that prop exists.
-- `$EXPOSE_AS prop -> attr` – use `.prop` but output as `attr`.
-- `$EXPOSE_ALL` – dump safe attributes.
-- `$TITLE` – derived from `ROOT`’s `.title`, or first `TITLE:`.
-- `$$NAME` – global variables passed in Python (`globals={"SITE":"QAML"}`).
+- `$EXPOSE_AS(prop, attr)` – use `.prop` but output as `attr`.
+- `$EXPOSE_ALL` – exposes all properties.
+- `$TITLE` – derived from `ROOT`’s `.title`, or first `TITLE:`. 
+- `$DEFINE(x, y)` – string replacement. replaces all X with Y. 
 
 ---
 

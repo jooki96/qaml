@@ -12,7 +12,7 @@ PROP = re.compile(r"^\.(?P<key>[a-zA-Z_][\w:-]*)\s*(?P<op>\+=|=)\s*\"(?P<val>[^\
 
 def _dedent_width(line):
     return len(line) - len(line.lstrip(" \t"))
-
+    
 def parse_text(text):
     """Parse QAML source into an AST Block tree.
 
@@ -49,7 +49,6 @@ def parse_text(text):
         if indent % indent_unit != 0:
             raise SyntaxError(f"Indentation not multiple of {indent_unit} at line: {raw!r}")
         level = indent // indent_unit
-        line = raw.strip()
 
         # Close blocks until we reach parent level
         while stack and stack[-1][0] > level:
@@ -58,7 +57,10 @@ def parse_text(text):
             raise SyntaxError("Invalid indentation structure")
         parent = stack[-1][1]
 
-        m = HEADER.match(line)
+        # Work with the stripped version only for header/property checks
+        line_stripped = raw.strip()
+
+        m = HEADER.match(line_stripped)
         if m:
             blk = Block(m.group("name"))
             # Inline attrs in header
@@ -70,14 +72,18 @@ def parse_text(text):
             continue
 
         # Property line?
-        pm = PROP.match(line)
+        pm = PROP.match(line_stripped)
         if pm:
             parent.add_prop(pm.group("key"), pm.group("val"), pm.group("op"))
             continue
 
-        # Otherwise it's a text line (may contain inline tags)
-        for node in _parse_inline(line):
-            parent.add_child(node)
+        # Otherwise it's a text line (may contain inline tags).
+        # Slice off the parent's base indent, but preserve inner indentation.
+        base_indent = stack[-1][0] * indent_unit
+        text_line = raw[base_indent:]  + "\n"
+
+        for node in _parse_inline(text_line):
+            parent.add_child(node) 
 
     return root
 

@@ -8,15 +8,21 @@
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;line-height:1.5;padding:2rem;max-width:900px;margin:auto}
     .card{border:1px solid #ddd;border-radius:12px;padding:1rem;box-shadow:0 1px 4px rgba(0,0,0,.06)}
-  </style>
+  </style> 
+  <link href="css/prism.css" rel="stylesheet" />
 </head>
 <body>
-$BODY
+$BODY 
+
+<script src="js/prism.js"></script> 
 </body>
 </html>
 
 [ARTICLE]
 <article $EXPOSE class class="card">$BODY</article>
+
+[AUTHOR]
+<h4>$BODY</h3>
 
 [TITLE]
 <h1 $EXPOSE class>$BODY</h1>
@@ -25,10 +31,14 @@ $BODY
 <h2 $EXPOSE class>$BODY</h2>
 
 [TEXT]
-<p $EXPOSE class>$BODY</p>
+<p $DEFINE("
+", "</p><p>") $DEFINE("python","PYTHON") $DEFINE("  ","&nbsp&nbsp&nbsp&nbsp")>$BODY</p>
 
 [LINK]
 <a $EXPOSE href $EXPOSE target $EXPOSE class>$BODY</a>
 
 [IMG]
 <img $EXPOSE src $EXPOSE alt $EXPOSE width $EXPOSE height/>
+
+[PYTHON]
+<pre><code class="language-python">$BODY</code></pre>
