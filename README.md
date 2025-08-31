@@ -164,7 +164,7 @@ $BODY
 ## 5. Python usage
 
 ```python
-from qaml.api import load_templates, load_qaml, render_html
+from qaml import load_templates, load_qaml, render_html
 
 templates = load_templates("templates")
 ast       = load_qaml("examples/demo.qaml")
