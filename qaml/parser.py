@@ -1,128 +1,154 @@
 import re
-from .block import Block
 
-# Inline tag like: [LINK .href="..." .class+="btn"]Click[/LINK]
-INLINE_OPEN = re.compile(r"\[(?P<name>[A-Z0-9_:-]+)(?P<attrs>(?:\s+\.[a-zA-Z_][\w:-]*\s*(?:\+=|=)\s*\"[^\"]*\")*)\]")
-INLINE_CLOSE = re.compile(r"\[/([A-Z0-9_:-]+)]")
-INLINE_ATTR = re.compile(r"\.(?P<key>[a-zA-Z_][\w:-]*)\s*(?P<op>\+=|=)\s*\"(?P<val>[^\"]*)\"")
+# ------------------------------------
+# Regex patterns
+# ------------------------------------
+attr_line_re = re.compile(r'^\.(\w+)\s*=\s*(.+)$')         # .key = value
+inline_block_re = re.compile(r'\[([A-Z0-9_]+)(.*?)\](.*?)\[/\1\]')  # string contains inline block
 
-# Block header like: NAME: [.id="x" .class+="y"]
-HEADER = re.compile(r"^(?P<name>[A-Z0-9_:-]+):(?:\s+(?P<attrs>.*))?$")
-PROP = re.compile(r"^\.(?P<key>[a-zA-Z_][\w:-]*)\s*(?P<op>\+=|=)\s*\"(?P<val>[^\"]*)\"\s*$")
+# inline_open_re = re.compile(r'^\[(\w+)(.*?)\]$')           # [BLOCK ...]
+# inline_close_re = re.compile(r'^\[/(\w+)\]$')              # [/BLOCK]
+attr_inline_re = re.compile(r'\.(\w+)="([^"]*)"')          # .key="value"
+block_re = re.compile(r'^([A-Z0-9_]+):$')
 
-def _dedent_width(line):
-    return len(line) - len(line.lstrip(" \t"))
+# ------------------------------------
+# AST Node
+# ------------------------------------
+class Node:
+    def __init__(self, name, attrs=None, children=None):
+        self.name = name
+        self.attrs = attrs or {}
+        self.children = children or []
+
+    def __repr__(self, level=0):
+        pad = "  " * level
+        rep = f"{pad}{self.name} {self.attrs}\n"
+        for c in self.children:
+            if isinstance(c, Node):
+                rep += c.__repr__(level + 1)
+            else:  # raw string child
+                rep += f"{pad}  {repr(c)}\n"
+        return rep
+
+# ------------------------------------
+# Attribute parsing helpers
+# ------------------------------------
+def parse_attr_line(line):
+    """Parse `.key = value` style attributes (indent blocks)."""
+    m = attr_line_re.match(line)
+    if not m:
+        return None
+    key, val = m.groups()
+    val = val.strip()
+    # naive type coercion
+    if val.startswith('"') and val.endswith('"'):
+        val = val[1:-1]
+    elif val.isdigit():
+        val = int(val)
+    elif val.lower() in ("true", "false"):
+        val = (val.lower() == "true")
+    return key, val
+
+
+def parse_inline_attrs(text):
+    """Parse .key="val" attributes inside inline blocks."""
+    attrs = {}
+    for k, v in attr_inline_re.findall(text):
+        if v.isdigit():
+            v = int(v)
+        elif v.lower() in ("true", "false"):
+            v = (v.lower() == "true")
+        attrs[k] = v
+    return attrs
+
+
+def parse_inline_in_text(text):
+    """Split a text string into raw segments and inline block Nodes."""
+    children = []
+    pos = 0
+    for m in inline_block_re.finditer(text):
+        start, end = m.span()
+
+        # text before block
+        if start > pos:
+            children.append(text[pos:start])
+
+        block_name = m.group(1)
+        attr_text  = m.group(2).strip()
+        body_text  = m.group(3).strip()
+
+        # parse inline attrs
+        attrs = parse_inline_attrs(attr_text)
+
+        # recursively parse inner body (nested inline blocks allowed)
+        body_children = parse_inline_in_text(body_text) if body_text else []
+
+        children.append(Node(block_name, attrs=attrs, children=body_children))
+
+        pos = end
+
+    # trailing text after last match
+    if pos < len(text):
+        children.append(text[pos:])
+
+    return children
+
     
-def parse_text(text):
-    """Parse QAML source into an AST Block tree.
-
-    Syntax:
-      - Indentation defines hierarchy (spaces or tabs; mixed discouraged).
-      - Block: NAME: [optional inline props]
-      - Property line inside a block: .key="val" or .class+="token"
-      - Plain text becomes raw string nodes; supports inline tags [TAG ...]...[/TAG].
-      - Lines starting with # are comments.
-    """
-    lines = text.splitlines()
-    # Autodetect indent unit (default 2 spaces)
-    unit = None
-    for L in lines:
-        if L.strip() and (L.startswith(" ") or L.startswith("\t")):
-            w = _dedent_width(L)
-            if w:
-                unit = w
-                break
-    indent_unit = unit or 2
-
-    # Stack of (indent_level, Block)
-    root = Block("__ROOT__")
+# ------------------------------------
+#   QAML parser
+# ------------------------------------
+def parse_qaml(text): 
+    root = Node("ROOT")
     stack = [(0, root)]
 
-    i = 0
-    n = len(lines)
-    while i < n:
-        raw = lines[i]
-        i += 1
-        if not raw.strip() or raw.strip().startswith("#"):
+    for line in text.splitlines():
+        if not line.strip():
             continue
-        indent = _dedent_width(raw)
-        if indent % indent_unit != 0:
-            raise SyntaxError(f"Indentation not multiple of {indent_unit} at line: {raw!r}")
-        level = indent // indent_unit
+        indent = len(line) - len(line.lstrip(" "))
+        stripped = line.strip() 
 
-        # Close blocks until we reach parent level
-        while stack and stack[-1][0] > level:
-            stack.pop()
-        if not stack:
-            raise SyntaxError("Invalid indentation structure")
-        parent = stack[-1][1]
+        # Block header
+        if block_re.match(stripped):
+            node = Node(stripped[:-1])  # drop trailing ':'
 
-        # Work with the stripped version only for header/property checks
-        line_stripped = raw.strip()
-
-        m = HEADER.match(line_stripped)
-        if m:
-            blk = Block(m.group("name"))
-            # Inline attrs in header
-            attrs = m.group("attrs") or ""
-            for am in INLINE_ATTR.finditer(attrs):
-                blk.add_prop(am.group("key"), am.group("val"), am.group("op"))
-            parent.add_child(blk)
-            stack.append((level+1, blk))
+            # pop back until we find the right parent, but never remove root
+            while len(stack) > 1 and indent <= stack[-1][0]:
+                stack.pop()
+ 
+            stack[-1][1].children.append(node)
+            stack.append((indent, node))
             continue
 
-        # Property line?
-        pm = PROP.match(line_stripped)
-        if pm:
-            parent.add_prop(pm.group("key"), pm.group("val"), pm.group("op"))
+        # Attribute line
+        attr = parse_attr_line(stripped)
+        if attr:
+            k, v = attr
+            stack[-1][1].attrs[k] = v
             continue
-
-        # Otherwise it's a text line (may contain inline tags).
-        # Slice off the parent's base indent, but preserve inner indentation.
-        base_indent = stack[-1][0] * indent_unit
-        text_line = raw[base_indent:]  + "\n"
-
-        for node in _parse_inline(text_line):
-            parent.add_child(node) 
-
-    return root
-
-def _parse_inline(line):
-    """Yield str or Block nodes parsed from inline syntax in a single line."""
-    out = []
-    pos = 0
-    stack = []  # (name, Block)
-    while pos < len(line):
-        m = INLINE_OPEN.search(line, pos)
-        c = INLINE_CLOSE.search(line, pos)
-        if m and (not c or m.start() < c.start()):
-            # Emit leading text
-            if m.start() > pos:
-                out.append(line[pos:m.start()])
-            blk = Block(m.group("name"))
-            attrs = m.group("attrs") or ""
-            for am in INLINE_ATTR.finditer(attrs):
-                blk.add_prop(am.group("key"), am.group("val"), am.group("op"))
-            stack.append((blk.name, blk))
-            pos = m.end()
-        elif c and stack and c.start() >= pos:
-            # close the last block
-            if c.group(1) != stack[-1][0]:
-                raise SyntaxError(f"Mismatched inline close tag: {c.group(1)} expected {stack[-1][0]}")
-            content = line[pos:c.start()]
-            for node in _parse_inline(content):
-                stack[-1][1].add_child(node)
-            blk = stack.pop()[1]
-            if stack:
-                stack[-1][1].add_child(blk)
-            else:
-                out.append(blk)
-            pos = c.end()
-        else:
-            # no more tags
-            out.append(line[pos:])
-            break
-    if stack:
-        names = ", ".join(n for n,_ in stack)
-        raise SyntaxError(f"Unclosed inline tag(s): {names}")
-    return out
+            
+        # do we need these anymore?
+        # inline_open = inline_open_re.match(stripped)
+        # if inline_open:
+            # name, attr_text = inline_open.groups()
+            # node = Node(name)
+            # node.attrs.update(parse_inline_attrs(attr_text)) 
+            # stack_top_node = stack[-1][1]
+            # stack_top_node.children.append(node)
+            # stack.append((indent, node))
+            # continue
+            
+        # inline_close = inline_close_re.match(stripped)
+        # if inline_close:
+            # close_name = inline_close.group(1) 
+            # while len(stack) > 1 and stack[-1][1].name != close_name:
+                # bad_node = stack.pop()[1] 
+                # stack[-1][1].children.remove(bad_node)
+            # if len(stack) > 1 and stack[-1][1].name == close_name:
+                # stack.pop()
+            # continue
+            
+            
+        stack[-1][1].children.extend(parse_inline_in_text(stripped))
+        
+        
+    return root 
